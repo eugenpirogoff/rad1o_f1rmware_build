@@ -1,3 +1,7 @@
+output of https://github.com/rad1o/f1rmware/tree/master/smartflash folder of the newest master on current commit 8599d4a5905aa9309d7e7150aeec4a3921e93ef7 (this will be updated on each release)
+____________________________
+
+
 # smartflash
 
 A fully automatic rad1o mass flash tool
