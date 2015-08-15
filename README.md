@@ -1,4 +1,4 @@
-output of https://github.com/rad1o/f1rmware/tree/master/smartflash folder of the newest master on current commit 8599d4a5905aa9309d7e7150aeec4a3921e93ef7 (this will be updated on each release)
+output of https://github.com/rad1o/f1rmware/tree/master/smartflash folder of the newest master on current commit b2f77d690ee9a876ae48d16debe58a76a6a30361 (this will be updated on each release)
 ____________________________
 
 
