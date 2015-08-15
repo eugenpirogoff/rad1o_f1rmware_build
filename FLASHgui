@@ -1,0 +1,250 @@
+#!/usr/bin/env perl
+#
+# vim:set ts=8 sw=4:
+
+use strict;
+use Curses;
+use POSIX qw(strftime getgroups);
+use File::Spec;
+use v5.10.1;
+
+#use FindBin;
+#use lib "$FindBin::Bin/lib";
+
+use constant DEV => "/sys/bus/usb/devices";
+
+sub getline{
+	my($path)=@_;
+	open(my $f,"<",DEV."/".$path) || do {
+#		print "failed opening $path: $!\n";
+		return "";
+	};
+	my $l=<$f>;
+	close($f);
+	chomp($l);
+	return $l;
+};
+
+sub gosub {
+	my ($dev,$grep)=@_;
+	my $dh;
+	my $dir;
+	opendir($dh, DEV."/".$dev) || do {
+		die "opendir failure for $dev: $!?\n";
+	};
+	($dir)=grep {/$grep/} grep {/^[^.]/} readdir($dh);
+	if($dir eq ""){
+		return "";
+	};
+	close $dh;
+	$dev.="/".$dir;
+	return $dev;
+};
+
+
+sub getdev{
+	my ($dev)=@_;
+	my $dh;
+	my $dir;
+
+	my $r = eval {
+	    my $nr="$dev not ready\n";
+	    $dev=gosub($dev,":1") || die $nr;
+	    $dev=gosub($dev,"^host");
+	    $dev=gosub($dev,"^target") || die $nr;
+	    $dev=~/target(.*)/;
+	    $dev=gosub($dev,$1) || die $nr;
+	    $dev=gosub($dev,"^block") || die $nr;
+	    $dev=gosub($dev,".") || die $nr;
+	    $dev=~m!/([^/]*)$!;
+	    my $r=$1;
+	    if($r!~/^sd/){
+		die "Strange device? $dev -> $r?\n";
+	    };
+	    if ($< != 0 || $> != 0){
+		my ($uid,$gid)=(stat("/dev/".$r))[4,5];
+		if ($uid != $< || $uid != $>){
+		    my @gg=getgroups();
+		    if (!($gid ~~ @gg)){
+			die "$r no permission\n";
+		    };
+		};
+	    };
+	    return $r;
+	};
+	return $@ if $@;
+	return $r;
+};
+
+my %paths;
+my %pids;
+use POSIX ":sys_wait_h";
+
+my $kid;
+$SIG{CHLD}=sub {
+	do {
+		$kid = waitpid(-1, WNOHANG);
+		if($kid>0){
+			my $p=$pids{$kid};
+			delete $pids{$kid};
+			$paths{$p}{run}=-1;
+			$paths{$p}{error}=$?>>8;
+		};
+	}while $kid>0;
+};
+
+sub call{
+	my $pid = fork();
+	if (not defined $pid) {
+		die "fork failed\n";
+	} elsif ($pid == 0) {
+		setpgrp(0,0);
+		shift;
+		if($_[0] eq "fnord"){
+		    shift;
+		    open STDOUT, '>', File::Spec->devnull();
+		    open STDERR, '>', File::Spec->devnull();
+		};
+		my $e=system(@_);
+		exit($e>>8); 
+	};
+	$pids{$pid}=$_[0];
+	return $pid;
+};
+
+initscr;
+my($width,$height);
+getmaxyx($height,$width);
+start_color();
+init_pair(4,::COLOR_BLUE, ::COLOR_BLACK);
+init_pair(3,::COLOR_RED, ::COLOR_BLACK);
+#END{endwin;}
+my $win_top=subwin(2,$width,0,0);
+my $win=subwin($height-3,$width,2,0);
+my $win_bot=subwin(1,$width,$height-1,0);
+noecho;
+curs_set(0);
+$win_top->addstr(0,0,"rad1o flash gui 0.2");
+$win_top->addstr(1,0,"-"x20);
+$win_top->refresh;
+
+my $firstrun=1;
+while(1){
+	opendir(my $dh, DEV); my @paths=grep {/^[^.]/} readdir($dh); close $dh;
+	for my $path (@paths){
+		next if $path =~ /^usb/;
+		next if $path =~ /:/;
+		$paths{$path}{found}=1;
+	};
+
+	for my $p (sort keys %paths){
+		next if($paths{$p}{delete});
+		if($paths{$p}{error}>0){
+			$paths{$p}{msg}.=" [ERROR: $paths{$p}{error}]";
+			$paths{$p}{error}=0;
+		};
+		$paths{$p}{vid}=getline($p."/idVendor");
+		if ($paths{$p}{vid} eq ""){
+			$paths{$p}{gone}=1;
+			if($paths{$p}{run}>0 and $paths{$p}{done} =~ /1d50:/){
+				kill('HUP',-$paths{$p}{run});
+				$paths{$p}{msg}.=", killed";
+				$paths{$p}{run}=0;
+			};
+			$paths{$p}{done}=0;
+			$paths{$p}{ignore}=0;
+			next;
+		}else{
+			$paths{$p}{gone}=0;
+		};
+		$paths{$p}{pid}=getline($p."/idProduct");
+		$paths{$p}{mfg}=getline($p."/manufacturer");
+		$paths{$p}{prod}=getline($p."/product");
+
+		my $id="$paths{$p}{vid}:$paths{$p}{pid}";
+
+		if($id eq "1fc9:000c"){ # LPC4330 - DFU Mode
+			next if ($paths{$p}{done} eq $id);
+			$paths{$p}{msg}="DFU";
+			$paths{$p}{run}=call($p,qw(make -s dfu),"UPATH=$p");
+			$paths{$p}{done}=$id;
+		}elsif($id eq "1fc9:0042"){ # rad1o "full flash" mode
+			next if ($paths{$p}{done} eq $id);
+			my $sdev=getdev($p);
+			if($sdev eq ""){
+				$paths{$p}{msg}="(not ready)";
+				next;
+			};
+			if($sdev =~ / /){
+				chomp($sdev);
+				$paths{$p}{msg}="($sdev)";
+				next;
+			};
+			$paths{$p}{msg}="FLASH $sdev";
+			$paths{$p}{run}=call($p,qw(make -s flash),"UPATH=$p","UDISK=$sdev");
+			$paths{$p}{done}=$id;
+		}elsif($id eq "1fc9:0082"){ # rad1o/NXP Mass storage
+			next if ($paths{$p}{done} eq $id);
+			my $sdev=getdev($p);
+			if($sdev eq ""){
+				$paths{$p}{msg}="(not ready)";
+				next;
+			};
+			if($sdev =~ / /){
+				chomp($sdev);
+				$paths{$p}{msg}="($sdev)";
+				next;
+			};
+			$paths{$p}{msg}="FILE $sdev";
+			$paths{$p}{run}=call($p,qw(make -s msc),"UPATH=$p","UDISK=$sdev");
+			$paths{$p}{done}=$id;
+		}elsif($id eq "1d50:6089" or $id eq "1d50:cc15" ){ # hackrf/rad1o SDR
+			next if ($paths{$p}{done} eq $id);
+			$paths{$p}{msg}="SDR";
+			$paths{$p}{run}=call($p,"fnord",qw(make -s sdr),"UPATH=$p");
+			$paths{$p}{done}=$id;
+		}else{
+			$paths{$p}{ignore}=1;
+			$paths{$p}{delete}=1 if($firstrun);
+		};
+	};
+
+	my $line=0;
+	init_pair(2,2,3);  # Initiate pair. Pair 0 reserved for mono.
+	for my $p (sort keys %paths){
+		next if ($paths{$p}{delete});
+		if ($paths{$p}{ignore}){ # IGNOREd
+			$win->attron(COLOR_PAIR(3));   # Start color.
+			$win->addstr($line,0,
+					sprintf "%-8s | %04s:%04s | %s %s" . " "x42,
+					$p, $paths{$p}{vid},$paths{$p}{pid},
+					$paths{$p}{mfg},$paths{$p}{prod}
+				);
+			$win->attroff(COLOR_PAIR(4));  # End color.
+		}elsif ($paths{$p}{gone}){ 
+			$win->attron(COLOR_PAIR(4));   # Start color.
+			$win->addstr($line,0,
+					sprintf "%-8s | %9s | %s" . " "x42,
+					$p, $paths{$p}{run}>0?"(gone, $paths{$p}{run})":"(gone)",
+					$paths{$p}{msg}
+				);
+			$win->attroff(COLOR_PAIR(4));  # End color.
+		}else{
+			$win->addstr($line,0,
+					sprintf "%-8s | %04s:%04s | %s " . " "x42,
+					$p, $paths{$p}{vid},$paths{$p}{pid},
+					$paths{$p}{msg}
+					. ($paths{$p}{run}>0?" (running)":
+					    ($paths{$p}{run}<0?" (done)": "") )
+				);
+		};
+	    $line++;
+	};
+	$win->refresh;
+	$win_bot->addstr(0,0,
+			sprintf "%d Actions running",scalar(keys %pids)
+			);
+	$win_bot->refresh;
+	select(undef,undef,undef,.3);
+	$firstrun=0;
+};
