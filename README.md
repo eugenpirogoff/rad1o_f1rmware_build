@@ -1,5 +1,5 @@
-output of https://github.com/rad1o/f1rmware/tree/master/smartflash folder of the newest master on current commit 2c1029174b4662a87031f6451013c3b7416920f5 (this will be updated on each release)
-____________________________
+Including Telegraph build from https://github.com/virtualabs/f1rmware
+
 
 
 # smartflash
