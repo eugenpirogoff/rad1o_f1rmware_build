@@ -1,7 +1,3 @@
-Including Telegraph build from https://github.com/virtualabs/f1rmware
-
-
-
 # smartflash
 
 A fully automatic rad1o mass flash tool
