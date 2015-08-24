@@ -14,8 +14,11 @@ APP=../flashapp/flashapp.dfu
 FILEORDER= \
     camp.b1n \
     hackrf.b1n \
-	musicapp.b1n \
+		rfapp.b1n \
+    musicapp.b1n \
+		ccccmaze.b1n \
     testapp.b1n
+
 
 gather:
 	@echo
@@ -25,8 +28,11 @@ gather:
 	cp ../testapp/testapp.b1n $(fsdir)/
 	cp ../campapp/camp.b1n $(fsdir)/
 	cp ../musicapp/musicapp.b1n $(fsdir)/
+	cp ../ccccmaze/ccccmaze.b1n $(fsdir)/
+	cp ../ccccmaze/story/*.csm $(fsdir)/
+	cp ../rfapp/rfapp.b1n $(fsdir)/
 	-cp ../l0dables/*.c1d $(fsdir)/
-	-for a in ../assets/*.led ; do ../tools/convertleds.py -o ${fsdir} $$a  ;done
+	for a in ../assets/*.led ; do ../tools/convertleds.py -o ${fsdir} $$a || exit ;done
 	-for a in ../l0dables/*.n1k ; do b=$${a##*/}; cp $$a ${fsdir}/$${b#nick_} ; done
 	cp ../hackrf/firmware/cpld/sgpio_if/default.xsvf $(fsdir)/cpld.xsv
 	# Add f0nts, images, l0dables, etc.
@@ -41,7 +47,7 @@ gather:
 run:
 	./FLASHgui
 
-### Rebuild everything 
+### Rebuild everything
 rebuild: build gather
 build:
 	@echo
@@ -51,6 +57,8 @@ build:
 	cd ../campapp && make camp.b1n
 	cd ../testapp && make testapp.b1n
 	cd ../musicapp && make musicapp.b1n
+	cd ../rfapp && make rfapp.b1n
+	cd ../ccccmaze && make ccccmaze.b1n
 	cd ../bootloader && make boot.b1n
 	cd ../flashapp && make flashapp.dfu
 	cd ../l0dables && make
